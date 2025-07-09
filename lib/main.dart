@@ -1,122 +1,198 @@
-import 'package:flutter/material.dart';
+// main.dart
+// ----------------------------------------------------
+// Логотип + карточка авторизации (адаптивная).
+// При нажатии “Log In” выполняется авторизация на Matrix-сервере
+// woky.to:12345 через SDK *matrix 1.0.x*.
+// Сохранение на диске и Sembast убраны — берём простое
+// in-memory-хранилище MemoryStore, которого для демо вполне достаточно.
+// ----------------------------------------------------
 
-void main() {
-  runApp(const MyApp());
-}
+import 'package:flutter/material.dart';
+import 'app_config.dart';
+
+// Matrix SDK
+import 'package:matrix/matrix.dart' as mx;
+
+void main() => runApp(const MyApp());
 
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
-  // This widget is the root of your application.
   @override
-  Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Flutter Demo',
-      theme: ThemeData(
-        // This is the theme of your application.
-        //
-        // TRY THIS: Try running your application with "flutter run". You'll see
-        // the application has a purple toolbar. Then, without quitting the app,
-        // try changing the seedColor in the colorScheme below to Colors.green
-        // and then invoke "hot reload" (save your changes or press the "hot
-        // reload" button in a Flutter-supported IDE, or press "r" if you used
-        // the command line to start the app).
-        //
-        // Notice that the counter didn't reset back to zero; the application
-        // state is not lost during the reload. To reset the state, use hot
-        // restart instead.
-        //
-        // This works for code too, not just values: Most code changes can be
-        // tested with just a hot reload.
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.deepPurple),
-      ),
-      home: const MyHomePage(title: 'Flutter Demo Home Page'),
-    );
-  }
-}
-
-class MyHomePage extends StatefulWidget {
-  const MyHomePage({super.key, required this.title});
-
-  // This widget is the home page of your application. It is stateful, meaning
-  // that it has a State object (defined below) that contains fields that affect
-  // how it looks.
-
-  // This class is the configuration for the state. It holds the values (in this
-  // case the title) provided by the parent (in this case the App widget) and
-  // used by the build method of the State. Fields in a Widget subclass are
-  // always marked "final".
-
-  final String title;
-
-  @override
-  State<MyHomePage> createState() => _MyHomePageState();
-}
-
-class _MyHomePageState extends State<MyHomePage> {
-  int _counter = 0;
-
-  void _incrementCounter() {
-    setState(() {
-      // This call to setState tells the Flutter framework that something has
-      // changed in this State, which causes it to rerun the build method below
-      // so that the display can reflect the updated values. If we changed
-      // _counter without calling setState(), then the build method would not be
-      // called again, and so nothing would appear to happen.
-      _counter++;
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    // This method is rerun every time setState is called, for instance as done
-    // by the _incrementCounter method above.
-    //
-    // The Flutter framework has been optimized to make rerunning build methods
-    // fast, so that you can just rebuild anything that needs updating rather
-    // than having to individually change instances of widgets.
-    return Scaffold(
-      appBar: AppBar(
-        // TRY THIS: Try changing the color here to a specific color (to
-        // Colors.amber, perhaps?) and trigger a hot reload to see the AppBar
-        // change color while the other colors stay the same.
-        backgroundColor: Theme.of(context).colorScheme.inversePrimary,
-        // Here we take the value from the MyHomePage object that was created by
-        // the App.build method, and use it to set our appbar title.
-        title: Text(widget.title),
-      ),
-      body: Center(
-        // Center is a layout widget. It takes a single child and positions it
-        // in the middle of the parent.
-        child: Column(
-          // Column is also a layout widget. It takes a list of children and
-          // arranges them vertically. By default, it sizes itself to fit its
-          // children horizontally, and tries to be as tall as its parent.
-          //
-          // Column has various properties to control how it sizes itself and
-          // how it positions its children. Here we use mainAxisAlignment to
-          // center the children vertically; the main axis here is the vertical
-          // axis because Columns are vertical (the cross axis would be
-          // horizontal).
-          //
-          // TRY THIS: Invoke "debug painting" (choose the "Toggle Debug Paint"
-          // action in the IDE, or press "p" in the console), to see the
-          // wireframe for each widget.
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: <Widget>[
-            const Text('You have pushed the button this many times:'),
-            Text(
-              '$_counter',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-          ],
+  Widget build(BuildContext context) => MaterialApp(
+        title: 'Wokytoky',
+        debugShowCheckedModeBanner: false,
+        theme: ThemeData(
+          useMaterial3: true,
+          scaffoldBackgroundColor: AppConfig.backgroundColor,
+          fontFamily: 'Roboto',
         ),
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: _incrementCounter,
-        tooltip: 'Increment',
-        child: const Icon(Icons.add),
-      ), // This trailing comma makes auto-formatting nicer for build methods.
+        home: const HomePage(),
+      );
+}
+
+class HomePage extends StatefulWidget {
+  const HomePage({super.key});
+  @override
+  State<HomePage> createState() => _HomePageState();
+}
+
+class _HomePageState extends State<HomePage> {
+  /* ────────── UI ────────── */
+
+  static const _logo       = 'assets/images/woky.png';
+  static const _logoY      = 0.25;   // центр логотипа – 25 % высоты
+  static const _logoWFrac  = 0.67;   // 67 % ширины
+  static const _cardWFrac  = 0.90;   // карточка – 90 % ширины
+
+  final _login = TextEditingController();
+  final _pass  = TextEditingController();
+
+  /* ────────── Matrix ────────── */
+
+  late final mx.Client _client;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // самый простой in-memory store — никаких зависимостей на path_provider
+    _client = mx.Client(
+      Uri.parse('https://woky.to:12345'),
+      store: mx.MemoryStore(),     // обязательный параметр в 1.0.x
     );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final size = MediaQuery.of(context).size;
+
+    return Scaffold(
+      body: Stack(
+        children: [
+          /* логотип */
+          Align(
+            alignment: const FractionalOffset(0.5, _logoY),
+            child: Image.asset(
+              _logo,
+              width: size.width * _logoWFrac,
+              fit: BoxFit.contain,
+            ),
+          ),
+
+          /* карточка */
+          Align(
+            alignment: Alignment.center,
+            child: Material(
+              elevation: 2,
+              color: AppConfig.cardBackground,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(16),
+                side: const BorderSide(width: 1, color: AppConfig.borderMain),
+              ),
+              child: SizedBox(
+                width: size.width * _cardWFrac,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,          // адаптивная высота
+                    children: [
+                      _inputField(_login, 'Login'),
+                      const SizedBox(height: 12),
+                      _inputField(_pass, 'Password', obscure: true),
+                      const SizedBox(height: 12),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          _button('Sign Up', () {/* TODO */}),
+                          _button('Log In', _loginMatrix),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  /* ────────── Matrix login ────────── */
+  Future<void> _loginMatrix() async {
+    final user = _login.text.trim();
+    final pwd  = _pass.text;
+    if (user.isEmpty || pwd.isEmpty) return;
+
+    try {
+      // 1) проверяем homeserver (обязательное требование SDK)
+      await _client.checkHomeserver(_client.homeserver);
+
+      // 2) логинимся паролем
+      await _client.login(
+        mx.LoginType.mLoginPassword,
+        password: pwd,
+        identifier: mx.AuthenticationUserIdentifier(user: user),
+      );
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Logged in ✅')),
+      );
+      // TODO: переход к списку комнат
+    } on mx.MatrixException catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Matrix error: ${e.error}')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Unexpected error: $e')),
+      );
+    }
+  }
+
+  /* ────────── helpers ────────── */
+
+  Widget _inputField(TextEditingController c, String hint,
+          {bool obscure = false}) =>
+      TextField(
+        controller: c,
+        obscureText: obscure,
+        style: const TextStyle(height: 1.1, color: AppConfig.textMain),
+        decoration: InputDecoration(
+          hintText: hint,
+          filled: true,
+          fillColor: AppConfig.bgInput,
+          isDense: true,
+          contentPadding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+          border: OutlineInputBorder(
+            borderSide: BorderSide.none,
+            borderRadius: BorderRadius.circular(8),
+          ),
+        ),
+      );
+
+  Widget _button(String label, VoidCallback onTap) => ElevatedButton(
+        style: ElevatedButton.styleFrom(
+          backgroundColor: AppConfig.btnColor,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+        ),
+        onPressed: onTap,
+        child: Text(label, style: const TextStyle(fontWeight: FontWeight.bold)),
+      );
+
+  @override
+  void dispose() {
+    _login.dispose();
+    _pass.dispose();
+    _client.dispose();      // корректное закрытие MemoryStore
+    super.dispose();
   }
 }
