@@ -1,17 +1,8 @@
-// main.dart
-// ----------------------------------------------------
-// Логотип + карточка авторизации (адаптивная).
-// При нажатии “Log In” выполняется авторизация на Matrix-сервере
-// woky.to:12345 через SDK *matrix 1.0.x*.
-// Сохранение на диске и Sembast убраны — берём простое
-// in-memory-хранилище MemoryStore, которого для демо вполне достаточно.
-// ----------------------------------------------------
-
+import 'dart:convert';
 import 'package:flutter/material.dart';
-import 'app_config.dart';
+import 'package:http/http.dart' as http;
 
-// Matrix SDK
-import 'package:matrix/matrix.dart' as mx;
+import 'app_config.dart';
 
 void main() => runApp(const MyApp());
 
@@ -38,80 +29,98 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  /* ────────── UI ────────── */
-
-  static const _logo       = 'assets/images/woky.png';
-  static const _logoY      = 0.25;   // центр логотипа – 25 % высоты
-  static const _logoWFrac  = 0.67;   // 67 % ширины
-  static const _cardWFrac  = 0.90;   // карточка – 90 % ширины
-
   final _login = TextEditingController();
   final _pass  = TextEditingController();
 
-  /* ────────── Matrix ────────── */
+  bool   _loggedIn = false;
+  String _status   = '';
 
-  late final mx.Client _client;
+  static const _logoAsset       = 'assets/images/woky.png';
+  static const _logoCenterY     = 0.25;
+  static const _logoWidthFrac   = 0.67;
+  static const _cardWidthFrac   = 0.90;
 
-  @override
-  void initState() {
-    super.initState();
+  Future<void> _logIn() async {
+    setState(() { _status = 'Connecting…'; });
 
-    // самый простой in-memory store — никаких зависимостей на path_provider
-    _client = mx.Client(
-      Uri.parse('https://woky.to:12345'),
-      store: mx.MemoryStore(),     // обязательный параметр в 1.0.x
-    );
+    final uri  = Uri.parse('https://woky.to:12345/_matrix/client/v3/login');
+    final body = jsonEncode({
+      'type': 'm.login.password',
+      'identifier': {'type': 'm.id.user', 'user': _login.text.trim()},
+      'password': _pass.text,
+    });
+
+    try {
+      final r = await http.post(
+        uri,
+        headers: {'Content-Type': 'application/json'},
+        body: body,
+      );
+
+      if (r.statusCode == 200) {
+        _loggedIn = true;
+      } else {
+        _status = 'HTTP ${r.statusCode}';
+      }
+    } catch (e) {
+      _status = 'FAIL • $e';
+    }
+
+    setState(() {});       // перерисовать
   }
 
   @override
   Widget build(BuildContext context) {
-    final size = MediaQuery.of(context).size;
+    final Size screen = MediaQuery.of(context).size;
 
     return Scaffold(
       body: Stack(
         children: [
-          /* логотип */
           Align(
-            alignment: const FractionalOffset(0.5, _logoY),
+            alignment: const FractionalOffset(0.5, _logoCenterY),
             child: Image.asset(
-              _logo,
-              width: size.width * _logoWFrac,
+              _logoAsset,
+              width: screen.width * _logoWidthFrac,
               fit: BoxFit.contain,
             ),
           ),
-
-          /* карточка */
           Align(
             alignment: Alignment.center,
-            child: Material(
-              elevation: 2,
-              color: AppConfig.cardBackground,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(16),
-                side: const BorderSide(width: 1, color: AppConfig.borderMain),
-              ),
-              child: SizedBox(
-                width: size.width * _cardWFrac,
-                child: Padding(
-                  padding: const EdgeInsets.all(16),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,          // адаптивная высота
-                    children: [
-                      _inputField(_login, 'Login'),
-                      const SizedBox(height: 12),
-                      _inputField(_pass, 'Password', obscure: true),
-                      const SizedBox(height: 12),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _button('Sign Up', () {/* TODO */}),
-                          _button('Log In', _loginMatrix),
-                        ],
+            child: _card(
+              width: screen.width * _cardWidthFrac,
+              child: _loggedIn
+                  ? const Padding(
+                      padding: EdgeInsets.all(32),
+                      child: Text(
+                        'login successful!',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-              ),
+                    )
+                  : Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _inputField(controller: _login, hint: 'Login'),
+                        const SizedBox(height: 12),
+                        _inputField(
+                            controller: _pass,
+                            hint: 'Password',
+                            obscure: true),
+                        const SizedBox(height: 12),
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                          children: [
+                            _inputButton('Sign Up', () {/* TODO */}),
+                            _inputButton('Log In', _logIn),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        Text(_status, style: const TextStyle(fontSize: 12)),
+                      ],
+                    ),
             ),
           ),
         ],
@@ -119,47 +128,25 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  /* ────────── Matrix login ────────── */
-  Future<void> _loginMatrix() async {
-    final user = _login.text.trim();
-    final pwd  = _pass.text;
-    if (user.isEmpty || pwd.isEmpty) return;
+  /* ───────── helpers ───────── */
 
-    try {
-      // 1) проверяем homeserver (обязательное требование SDK)
-      await _client.checkHomeserver(_client.homeserver);
-
-      // 2) логинимся паролем
-      await _client.login(
-        mx.LoginType.mLoginPassword,
-        password: pwd,
-        identifier: mx.AuthenticationUserIdentifier(user: user),
+  Widget _card({required double width, required Widget child}) => Material(
+        elevation: 2,
+        color: AppConfig.cardBackground,
+        shape: RoundedRectangleBorder(
+          side: const BorderSide(width: 1, color: AppConfig.borderMain),
+          borderRadius: BorderRadius.circular(16),
+        ),
+        child: SizedBox(width: width, child: Padding(padding: const EdgeInsets.all(16), child: child)),
       );
 
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Logged in ✅')),
-      );
-      // TODO: переход к списку комнат
-    } on mx.MatrixException catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Matrix error: ${e.error}')),
-      );
-    } catch (e) {
-      if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Unexpected error: $e')),
-      );
-    }
-  }
-
-  /* ────────── helpers ────────── */
-
-  Widget _inputField(TextEditingController c, String hint,
-          {bool obscure = false}) =>
+  Widget _inputField({
+    required TextEditingController controller,
+    required String hint,
+    bool obscure = false,
+  }) =>
       TextField(
-        controller: c,
+        controller: controller,
         obscureText: obscure,
         style: const TextStyle(height: 1.1, color: AppConfig.textMain),
         decoration: InputDecoration(
@@ -176,7 +163,7 @@ class _HomePageState extends State<HomePage> {
         ),
       );
 
-  Widget _button(String label, VoidCallback onTap) => ElevatedButton(
+  Widget _inputButton(String label, VoidCallback onTap) => ElevatedButton(
         style: ElevatedButton.styleFrom(
           backgroundColor: AppConfig.btnColor,
           foregroundColor: Colors.white,
@@ -192,7 +179,6 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _login.dispose();
     _pass.dispose();
-    _client.dispose();      // корректное закрытие MemoryStore
     super.dispose();
   }
 }
